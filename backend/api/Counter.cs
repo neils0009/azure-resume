@@ -10,5 +10,9 @@ namespace Company.Function
 
         [JsonProperty(PropertyName = "count")]
         public int Count {get; set;}
+
+
+    [JsonProperty("partitionKey")]
+    public string PartitionKey { get; set; }
     }
 }

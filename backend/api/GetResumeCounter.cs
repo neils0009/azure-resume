@@ -1,43 +1,48 @@
-using System;
-using System.IO;
-using System.Threading.Tasks;
-using Microsoft.AspNetCore.Mvc;
-using Microsoft.Azure.WebJobs;
-using Microsoft.Azure.WebJobs.Extensions.Http;
-using Microsoft.AspNetCore.Http;
+using System.Net;
+using System.Text;
+using Microsoft.Azure.Functions.Worker;
+using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
-using Microsoft.Azure.Functions.Worker;
-using System.Net.Http;
-using System.Text;
-using Microsoft.Azure.WebJobs.Extensions;
-using System.Data.Common;
-using System.Configuration;
-using System.Runtime.CompilerServices;
+using Microsoft.Azure.Cosmos;
 
+namespace Company.Function;
 
-namespace Company.Function
+public class GetResumeCounter
 {
-    public static class GetResumeCounter
+    private readonly ILogger<GetResumeCounter> _logger;
+    private readonly CosmosClient _cosmosClient;
+    private readonly Container _container;
+
+    public GetResumeCounter(ILogger<GetResumeCounter> logger, CosmosClient cosmosClient)
     {
-        [FunctionName("GetResumeCounter")]
-        public static HttpResponseMessage Run(
-            [HttpTrigger(AuthorizationLevel.Function, "get", "post", Route = null)] HttpRequest req,
-            [CosmosDB(databaseName: "AzureResume", containerName: "Counter", Connection = "AzureResumeConnectionString", Id = "1", PartitionKey = "1")] Counter counter,
-            [CosmosDB(databaseName: "AzureResume", containerName: "Counter", Connection = "AzureResumeConnectionString", Id = "1", PartitionKey = "1")] out Counter updatedCounter,
-            ILogger log)
-        {
-            log.LogInformation("C# HTTP trigger function processed a request.");
+        _logger = logger;
+        _cosmosClient = cosmosClient;
+        _container = _cosmosClient.GetContainer("AzureResume", "Counter");
+    }
 
-            updatedCounter = counter;
-            updatedCounter.Count += 1;
+    [Function("GetResumeCounter")]
+    public async Task<HttpResponseData> Run(
+        [HttpTrigger(AuthorizationLevel.Function, "get", "post")] HttpRequestData req)
+    {
+        _logger.LogInformation("C# HTTP trigger function processed a request.");
 
-            var jsonToReturn = JsonConvert.SerializeObject(counter);
-            
-            return new HttpResponseMessage(System.Net.HttpStatusCode.OK)
-            {
-                Content = new StringContent(jsonToReturn, Encoding.UTF8, "application/json")
-            };
-        }
+        var id = "1";
+        var partitionKey = new PartitionKey("1");
+
+        var response = await _container.ReadItemAsync<Counter>(id, partitionKey);
+        var counter = response.Resource;
+
+        counter.Count += 1;
+
+        await _container.ReplaceItemAsync(counter, counter.Id, partitionKey);
+
+        var jsonToReturn = JsonConvert.SerializeObject(counter);
+
+        var res = req.CreateResponse(HttpStatusCode.OK);
+        res.Headers.Add("Content-Type", "application/json");
+        await res.WriteStringAsync(jsonToReturn);
+
+        return res;
     }
 }
